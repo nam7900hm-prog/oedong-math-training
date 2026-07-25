@@ -1,0 +1,13 @@
+.topbar {
+  background: linear-gradient(135deg, #173f88, #2865d8);
+  border-bottom-color: #123879;
+  box-shadow: 0 5px 18px #173f8826;
+}
+.brand { color: #fff; }
+.brand b { color: #fff; }
+.brand small { color: #dce9ff; }
+.modeSwitch { background: #0f3375; }
+.modeSwitch button { color: #dbe8ff; }
+.modeSwitch .active { background: #fff; color: #174aa8; }
+.language { background: #fff; border-color: #c7d7f7; color: #173f88; }
+.language select { color: #173f88; }

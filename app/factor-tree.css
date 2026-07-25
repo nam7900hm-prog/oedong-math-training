@@ -1,0 +1,4 @@
+.factorTree { height: 285px; }
+.factor.p2a, .factor.p2b { display: grid; top: 218px; }
+.factorTreeTen{height:205px}.factorTreeTen .tenLeft,.factorTreeTen .tenRight{display:grid;top:118px}.factorTreeTen .tenLeft{left:calc(50% - 76px)}.factorTreeTen .tenRight{left:calc(50% + 36px)}.factorTreeTen small{top:174px}
+@media(max-width:560px) { .factorTree { height: 285px; } }
