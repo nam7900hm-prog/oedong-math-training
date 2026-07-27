@@ -8,6 +8,7 @@ import "./game.css";
 import "./header-theme.css";
 import "./learning-flow.css";
 import "./problem-diagrams.css";
+import TeacherProblemStudioPro from "./teacher-problem-studio-pro";
 
 type Lang = "한국어" | "English" | "Tiếng Việt" | "Русский" | "中文" | "සිංහල";
 type Piece = { tag: string; q: string; options: string[]; answer: number; talk: string };
@@ -1318,31 +1319,8 @@ function TeacherRosterManager({activeStudent,studentSaved,xp,minor}:{activeStude
   </section>
 }
 
-const cleanOcrMathText=(value:string)=>value
-  .normalize("NFKC")
-  .replace(/[A-Za-z]{2,}/g,"□")
-  .replace(/[^가-힣ㄱ-ㅎㅏ-ㅣ0-9A-Za-z\s+\-×÷=<>≤≥√²³().,:?!%°□]/g," ")
-  .replace(/(?:\s*□\s*){2,}/g," □ ")
-  .replace(/[ \t]{2,}/g," ")
-  .replace(/\s+([.,:?!])/g,"$1")
-  .replace(/\n{3,}/g,"\n\n")
-  .trim();
-
-const splitPdfProblems=(pages:string[])=>{
-  const cleanPages=pages.filter(page=>!/(?:\(\s*답\s*\)|\[\s*답\s*\]|정답\s*및\s*해설|풀이\s*과정)/.test(page.slice(0,500)));
-  const fullText=cleanPages.join("\n").replace(/\u00a0/g," ").replace(/[ \t]+\n/g,"\n");
-  const markers=[...fullText.matchAll(/^\s*(?:문제\s*)?(?:(\d{1,3})\s*[.)]?|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])\s+/gm)];
-  const found=markers.map((match,index)=>fullText.slice(match.index??0,markers[index+1]?.index??fullText.length).trim());
-  const fallback=fullText.split(/\n\s*\n+/).map(x=>x.trim()).filter(x=>x.length>8);
-  const candidates=found.length?found:fallback;
-  const seen=new Set<string>();
-  return candidates.filter(problem=>{const key=problem.replace(/\s+/g,"").slice(0,180);if(!key||seen.has(key))return false;seen.add(key);return true});
-};
-
 function TeacherProblemStudio(){
   const studioFileRef=useRef<HTMLInputElement>(null);
-  const selectedPdfFileRef=useRef<File|null>(null);
-  const studioDraftReady=useRef(false);
   const [fileName,setFileName]=useState("");
   const [sourceText,setSourceText]=useState("");
   const [recognizedProblems,setRecognizedProblems]=useState<string[]>([]);
@@ -1350,8 +1328,6 @@ function TeacherProblemStudio(){
   const [studioStage,setStudioStage]=useState<"upload"|"review"|"pieces"|"mounted">("upload");
   const [chunkCount,setChunkCount]=useState(6);
   const [generatedPieces,setGeneratedPieces]=useState<{tag:string;q:string}[]>([]);
-  const [recognizing,setRecognizing]=useState(false);
-  const [recognitionNotice,setRecognitionNotice]=useState("");
   const termOptions=Object.keys(curriculum);
   const [targetTerm,setTargetTerm]=useState(termOptions[0]);
   const targetMajors=Object.keys(curriculum[targetTerm]);
@@ -1361,79 +1337,15 @@ function TeacherProblemStudio(){
   const targetMinors=curriculum[targetTerm][targetMajor]?.[targetMiddle]??[];
   const [targetMinor,setTargetMinor]=useState(targetMinors[0]);
   const resetTarget=(term:string)=>{const major=Object.keys(curriculum[term])[0],middle=Object.keys(curriculum[term][major])[0];setTargetTerm(term);setTargetMajor(major);setTargetMiddle(middle);setTargetMinor(curriculum[term][major][middle][0])};
-  const recognizePdfProblems=async()=>{
-    if(!fileName&&!sourceText.trim())return;
-    setRecognizing(true);setRecognitionNotice("");
-    try{
-      let problems:string[]=[];
-      const file=selectedPdfFileRef.current;
-      if(file?.type==="application/pdf"||file?.name.toLowerCase().endsWith(".pdf")){
-        const pdfjs=await import("pdfjs-dist/build/pdf.mjs");
-        pdfjs.GlobalWorkerOptions.workerSrc="/pdf.worker.min.mjs";
-        const pdf=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
-        const pages:string[]=[];
-        for(let pageNumber=1;pageNumber<=pdf.numPages;pageNumber++){
-          const page=await pdf.getPage(pageNumber);
-          const content=await page.getTextContent();
-          let text="";
-          type PdfTextItem={str:string;hasEOL?:boolean;transform?:number[];height?:number};
-          const textItems=(content.items as unknown[]).filter((item):item is PdfTextItem=>typeof item==="object"&&item!==null&&"str" in item);
-          const sizes=textItems.map(item=>Math.abs(item.transform?.[3]??item.height??0)).filter(Boolean).sort((a,b)=>a-b);
-          const medianSize=sizes[Math.floor(sizes.length/2)]||10;
-          for(const item of textItems){
-            const value=item.str.trim();
-            const size=Math.abs(item.transform?.[3]??item.height??0);
-            const number=value.match(/^(?:문제\s*)?(\d{1,3})[.)]?$/);
-            if(number&&size>=medianSize*1.12)text+=`\n문제 ${number[1]}. `;
-            else text+=item.str+(item.hasEOL?"\n":" ");
-          }
-          pages.push(text);
-        }
-        if(pages.join("").trim().length<20){
-          setRecognitionNotice("사진으로 된 PDF입니다. 한글 글자를 읽는 중입니다…");
-          const {recognize}=await import("tesseract.js");
-          const ocrPages:string[]=[];
-          for(let pageNumber=1;pageNumber<=pdf.numPages;pageNumber++){
-            setRecognitionNotice(`사진 PDF 글자 읽는 중 · ${pageNumber}/${pdf.numPages}쪽`);
-            const page=await pdf.getPage(pageNumber);
-            const viewport=page.getViewport({scale:2.2});
-            const canvas=document.createElement("canvas");
-            canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
-            const context=canvas.getContext("2d");
-            if(!context)continue;
-            await page.render({canvas,canvasContext:context,viewport}).promise;
-            const result=await recognize(canvas,"kor+eng");
-            ocrPages.push(cleanOcrMathText(result.data.text));
-          }
-          problems=splitPdfProblems(ocrPages);
-        }else problems=splitPdfProblems(pages);
-      }else if(sourceText.trim())problems=splitPdfProblems([sourceText]);
-      if(!problems.length)throw new Error("문항 번호를 찾지 못했습니다.");
-      setRecognizedProblems(problems);setSelectedRecognized(0);setSourceText(problems[0]);setGeneratedPieces([]);setStudioStage("review");
-      setRecognitionNotice(`${problems.length}문항을 인식했습니다. 목록에서 원문을 클릭해 확인하세요.`);
-    }catch(error){setRecognitionNotice(`PDF 인식에 실패했습니다. ${error instanceof Error?error.message:"파일을 다시 확인해 주세요."}`)}finally{setRecognizing(false)}
-  };
-  useEffect(()=>{
-    const saved=localStorage.getItem("oedong-problem-studio-draft-v2");
-    if(saved)try{const draft=JSON.parse(saved);setFileName(draft.fileName??"");setSourceText(draft.sourceText??"");setRecognizedProblems(draft.recognizedProblems??[]);setSelectedRecognized(draft.selectedRecognized??0);setStudioStage(draft.studioStage??"upload");setChunkCount(draft.chunkCount??6);setGeneratedPieces(draft.generatedPieces??[]);setRecognitionNotice(draft.recognitionNotice??"");if(draft.targetTerm)resetTarget(draft.targetTerm)}catch{}
-    studioDraftReady.current=true;
-  },[]);
-  useEffect(()=>{
-    if(!studioDraftReady.current||studioStage==="mounted")return;
-    localStorage.setItem("oedong-problem-studio-draft-v2",JSON.stringify({fileName,sourceText,recognizedProblems,selectedRecognized,studioStage,chunkCount,generatedPieces,recognitionNotice,targetTerm,targetMajor,targetMiddle,targetMinor}));
-  },[fileName,sourceText,recognizedProblems,selectedRecognized,studioStage,chunkCount,generatedPieces,recognitionNotice,targetTerm,targetMajor,targetMiddle,targetMinor]);
-  useEffect(()=>{if(studioStage==="mounted")localStorage.removeItem("oedong-problem-studio-draft-v2")},[studioStage]);
   const recognizeProblem=()=>{if(!fileName&&!sourceText.trim())return;const sixProblems=["톱니의 수가 각각 48개, 72개인 두 톱니바퀴 A, B가 서로 맞물려 돌고 있다. A가 x번 회전할 때 B는 y번 회전한다고 한다. (1) x와 y 사이의 관계식을 구하여라. (2) A가 36번 회전할 때 B는 몇 번 회전하는지 구하여라.","다음 표에서 y가 x에 정비례할 때, A+B+C의 값을 구하시오. x: -7, B, 3, C / y: A, 12, -9, -15","80 L들이 원기둥 모양의 빈 물통에 매분 4 L씩 물을 넣는다. x분 동안 넣은 물의 양을 y L라 할 때, 이 물통에 물을 전체의 3/5만큼 채우는 데 걸리는 시간을 구하여라.","서로 맞물려 돌아가는 두 톱니바퀴 A, B가 있다. 톱니가 12개인 톱니바퀴 A가 1분 동안 3번 회전할 때, 톱니가 x개인 톱니바퀴 B는 1분 동안 y번 회전한다. 톱니바퀴 B가 1분 동안 4번 회전할 때 B의 톱니 수를 구하시오.","반비례 관계 y=a/x의 그래프 위에 두 점 A, C가 있다. 네 변이 좌표축에 각각 평행한 직사각형 ABCD의 넓이가 24일 때, 상수 a의 값을 구하시오. (단, 풀이 과정을 자세히 쓰시오.)","정비례 관계 y=ax의 그래프와 반비례 관계 y=-3/x의 그래프가 점 P(-3, b)에서 만날 때, a+b의 값을 구하시오. (단, a는 상수)"];const problems=fileName.includes("정비례")||fileName.includes("반비례")?sixProblems:[sourceText.trim()||`선택한 파일 ${fileName}의 첫 번째 문제`];setRecognizedProblems(problems);setSelectedRecognized(0);setSourceText(problems[0]);setStudioStage("review")};
   const makePieces=()=>{const prompts=["이 문제에서 마지막으로 구해야 하는 것은 무엇일까요?","문제에서 이미 알려 준 수와 조건을 찾아볼까요?","모르는 값을 어떤 문자로 놓으면 좋을까요?","첫 번째 조건을 말로 다시 설명해 볼까요?","그 조건을 수학식으로 바꾸면 어떻게 될까요?","식을 풀기 위해 가장 먼저 해야 할 계산은 무엇일까요?","다음 계산 단계에서 어떤 항을 정리해야 할까요?","계산한 값이 문제의 조건에 맞는지 확인해 볼까요?","구한 값의 단위와 의미는 무엇인가요?","원래 문제의 답을 완전한 문장으로 말해 볼까요?","다른 풀이 방법으로도 같은 답이 나오는지 확인해 볼까요?","비슷한 문제에서 바뀌어도 되는 조건은 무엇일까요?"];setGeneratedPieces(Array.from({length:chunkCount},(_,i)=>({tag:["구할 것","주어진 조건","미지수","뜻 이해","식 세우기","계산하기","풀이 연결","답 확인","단위 확인","답 말하기","이유 설명","유형 적용"][i]??`${i+1}단계`,q:prompts[i]??`${i+1}번째 풀이 단계를 확인해 볼까요?`})));setStudioStage("pieces")};
   const insertPieceAfter=(index:number)=>setGeneratedPieces(items=>[...items.slice(0,index+1),{tag:"추가 조각",q:"본문제 풀이에 필요한 질문을 입력하세요."},...items.slice(index+1)]);
-  const editGeneratedPiece=(index:number)=>{const piece=generatedPieces[index];const tag=window.prompt("조각 제목을 수정하세요.",piece.tag);if(tag===null)return;const q=window.prompt("조각 질문을 수정하세요.",piece.q);if(q===null)return;setGeneratedPieces(items=>items.map((item,i)=>i===index?{tag:tag.trim()||item.tag,q:q.trim()||item.q}:item))};
-  const deleteSelectedFile=()=>{selectedPdfFileRef.current=null;if(studioFileRef.current)studioFileRef.current.value="";setFileName("");setSourceText("");setRecognizedProblems([]);setSelectedRecognized(0);setGeneratedPieces([]);setRecognitionNotice("");setStudioStage("upload");localStorage.removeItem("oedong-problem-studio-draft-v2")};
   const mountProblem=()=>{setStudioStage("mounted")};
   const resetStudio=()=>{setFileName("");setSourceText("");setRecognizedProblems([]);setSelectedRecognized(0);setGeneratedPieces([]);setChunkCount(6);setStudioStage("upload")};
   return <section className="teacherProblemStudio"><div className="studioTitle"><div><span className="eyebrow">새 문제 제작 작업대</span><h1>문제 등록부터 조각 탑재까지</h1><p>교사가 원문과 조각 수, 탑재 단원을 직접 확인한 뒤 학생에게 공개합니다.</p></div><div className="studioSteps">{["파일 등록","원문 확인","조각 만들기","단원 탑재"].map((label,i)=><span key={label} className={i<=["upload","review","pieces","mounted"].indexOf(studioStage)?"done":""}><b>{i+1}</b>{label}</span>)}</div></div>
-    <div className="studioGrid"><section className="studioSource"><h2><span>1</span> 문제 파일 등록과 인식</h2><input ref={studioFileRef} type="file" accept="application/pdf,image/*" hidden onChange={e=>{const file=e.target.files?.[0]??null;selectedPdfFileRef.current=file;setFileName(file?.name??"");setSourceText("");setRecognizedProblems([]);setGeneratedPieces([]);setRecognitionNotice("");setStudioStage("upload")}}/><button className="filePickButton" onClick={()=>studioFileRef.current?.click()}>{fileName?`선택 파일 · ${fileName}`:"PDF 또는 문제 사진 선택"}</button>{fileName&&<button type="button" className="removeUploadedFile" onClick={deleteSelectedFile}>잘못 올린 파일 삭제</button>}<div className="recognitionRule">문제 앞에 단독으로 적힌 번호 1  2  3을 문항 시작으로 인식합니다.</div><div className="studioOr">또는 문제를 직접 입력</div><textarea value={sourceText} onChange={e=>setSourceText(e.target.value)} placeholder="문제 원문을 붙여 넣으세요."/><button className="recognizeButton" disabled={recognizing||(!fileName&&!sourceText.trim())} onClick={()=>void recognizePdfProblems()}>{recognizing?"PDF 문항을 찾는 중…":fileName?"선택한 파일 문제 인식하기":"입력한 문제 인식하기"}</button>{recognitionNotice&&<p className="recognitionNotice">{recognitionNotice}</p>}</section>
+    <div className="studioGrid"><section className="studioSource"><h2><span>1</span> 문제 파일 등록과 인식</h2><input ref={studioFileRef} type="file" accept="application/pdf,image/*" hidden onChange={e=>{const file=e.target.files?.[0];setFileName(file?.name??"");setSourceText("");setRecognizedProblems([]);setGeneratedPieces([]);setStudioStage("upload")}}/><button className="filePickButton" onClick={()=>studioFileRef.current?.click()}>{fileName?`선택 파일 · ${fileName}`:"PDF 또는 문제 사진 선택"}</button><div className="studioOr">또는 문제를 직접 입력</div><textarea value={sourceText} onChange={e=>setSourceText(e.target.value)} placeholder="문제 원문을 붙여 넣으세요."/><button className="recognizeButton" disabled={!fileName&&!sourceText.trim()} onClick={recognizeProblem}>{fileName?"선택한 파일 문제 인식하기":"입력한 문제 인식하기"}</button></section>
       <section className="studioReview"><h2><span>2</span> 교사 원문 확인</h2>{studioStage==="upload"?<div className="studioEmpty">파일을 등록하고 ‘선택한 파일 문제 인식하기’를 누르면 문항별 목록이 나타납니다.</div>:<><div className="recognizedSummary"><b>{recognizedProblems.length}문항 인식 완료</b><span>{fileName||"직접 입력 문제"}</span></div>{recognizedProblems.length>1&&<div className="recognizedProblemList">{recognizedProblems.map((problem,i)=><button key={i} className={selectedRecognized===i?"active":""} onClick={()=>{setSelectedRecognized(i);setSourceText(problem);setGeneratedPieces([]);setStudioStage("review")}}><b>{i+1}번</b><span>{problem}</span></button>)}</div>}<label>선택한 {selectedRecognized+1}번 문제<textarea value={sourceText} onChange={e=>{const value=e.target.value;setSourceText(value);setRecognizedProblems(items=>items.map((x,i)=>i===selectedRecognized?value:x))}}/></label><p>글자·수식·조건을 교사가 직접 고친 뒤 조각을 만드세요.</p><div className="chunkCountControl"><label>만들 조각 수<input type="number" min="3" max="12" value={chunkCount} onChange={e=>setChunkCount(Math.min(12,Math.max(3,Number(e.target.value)||3)))}/></label><small>기본 6조각 · 활용 문제는 8~12조각을 권장합니다.</small></div><button className="makePiecesButton" onClick={makePieces}>{selectedRecognized+1}번 문제 · {chunkCount}조각 만들기</button></>}</section></div>
-    <section className="studioPieces"><div className="studioSectionHead"><div><h2><span>3</span> 생성된 조각 확인</h2><p>본문제와 조각 문장을 이 화면에서 직접 고칠 수 있습니다.</p></div>{generatedPieces.length>0&&<b>{generatedPieces.length}조각 생성</b>}</div>{sourceText&&<div className="studioOriginalProblem editableOriginal"><div><b>본문제 직접 수정</b><small>□는 자동으로 지우지 않습니다. 원본을 확인하여 지우거나 올바른 문자·수식으로 바꾸세요.</small></div><textarea value={sourceText} onChange={e=>{const value=e.target.value;setSourceText(value);setRecognizedProblems(items=>items.map((x,i)=>i===selectedRecognized?value:x))}} aria-label="본문제 수정"/></div>}{generatedPieces.length?<div className="generatedPieceList">{generatedPieces.map((piece,i)=><div key={`${piece.tag}-${i}`}><span>{i+1}</span><label><b>{piece.tag}</b><textarea value={piece.q} onChange={e=>setGeneratedPieces(items=>items.map((x,n)=>n===i?{...x,q:e.target.value}:x))} aria-label={`${i+1}번 조각 문장 수정`}/></label><div className="generatedPieceActions"><button className="editGeneratedPiece" onClick={()=>editGeneratedPiece(i)}>수정</button><button className="insertGeneratedPiece" onClick={()=>insertPieceAfter(i)}>다음에 추가</button><button className="deleteGeneratedPiece" onClick={()=>{if(window.confirm(`${i+1}번 조각을 삭제할까요?`))setGeneratedPieces(items=>items.filter((_,n)=>n!==i))}}>삭제</button></div></div>)}</div>:<div className="studioEmpty compact">조각 수를 정하고 ‘조각 만들기’를 누르면 이곳에서 질문을 수정·추가·삭제할 수 있습니다.</div>}</section>
+    <section className="studioPieces"><div className="studioSectionHead"><div><h2><span>3</span> 생성된 조각 확인</h2><p>본문제를 보면서 원문 풀이 순서에 맞게 조각을 확인하고 수정합니다.</p></div>{generatedPieces.length>0&&<b>{generatedPieces.length}조각 생성</b>}</div>{sourceText&&<div className="studioOriginalProblem"><b>본문제</b><p>{formattedMathText(sourceText)}</p></div>}{generatedPieces.length?<div className="generatedPieceList">{generatedPieces.map((piece,i)=><div key={`${piece.tag}-${i}`}><span>{i+1}</span><label><b>{piece.tag}</b><input value={piece.q} onChange={e=>setGeneratedPieces(items=>items.map((x,n)=>n===i?{...x,q:e.target.value}:x))}/></label><div className="generatedPieceActions"><button className="insertGeneratedPiece" onClick={()=>insertPieceAfter(i)}>다음에 추가</button><button onClick={()=>setGeneratedPieces(items=>items.filter((_,n)=>n!==i))}>삭제</button></div></div>)}</div>:<div className="studioEmpty compact">조각 수를 정하고 ‘조각 만들기’를 누르면 이곳에서 질문을 수정·추가·삭제할 수 있습니다.</div>}</section>
     <section className="studioTarget"><div className="studioSectionHead"><div><h2><span>4</span> 학생 문제로 들어갈 위치 선택</h2><p>학년·학기부터 소단원까지 모두 확인한 뒤 탑재합니다.</p></div></div><div className="targetSelectors"><label>학년·학기<select value={targetTerm} onChange={e=>resetTarget(e.target.value)}>{termOptions.map(x=><option key={x}>{x}</option>)}</select></label><label>대단원<select value={targetMajor} onChange={e=>{const major=e.target.value,middle=Object.keys(curriculum[targetTerm][major])[0];setTargetMajor(major);setTargetMiddle(middle);setTargetMinor(curriculum[targetTerm][major][middle][0])}}>{targetMajors.map(x=><option key={x}>{x}</option>)}</select></label><label>중단원<select value={targetMiddle} onChange={e=>{setTargetMiddle(e.target.value);setTargetMinor(curriculum[targetTerm][targetMajor][e.target.value][0])}}>{targetMiddles.map(x=><option key={x}>{x}</option>)}</select></label><label>소단원<select value={targetMinor} onChange={e=>setTargetMinor(e.target.value)}>{targetMinors.map(x=><option key={x}>{x}</option>)}</select></label></div><div className="targetPath"><b>탑재 위치</b><span>{targetTerm} › {targetMajor} › {targetMiddle} › {targetMinor}</span></div><div className="studioPublish">{studioStage==="mounted"?<div className="mountedSuccess"><b>✓ 학생 문제로 탑재되었습니다.</b><span>{generatedPieces.length}개 조각과 함께 선택한 소단원에 저장되었습니다.</span></div>:<button disabled={!sourceText.trim()||!generatedPieces.length} onClick={mountProblem}>확인 완료 · 학생 문제로 탑재</button>}<button className="studioReset" onClick={resetStudio}>새 문제 등록</button></div></section>
   </section>
 }
@@ -1461,13 +1373,13 @@ function TeacherProblemAudit(){
   const changeMoveTerm=(term:string)=>{const major=Object.keys(curriculum[term])[0],middle=Object.keys(curriculum[term][major])[0];setMoveTerm(term);setMoveMajor(major);setMoveMiddle(middle);setMoveMinor(curriculum[term][major][middle][0])};
   const saveQuestion=()=>{if(!selected||!editQuestion.trim())return;persistOverrides({...overrides,[selected.key]:{...overrides[selected.key],question:editQuestion.trim()}})};
   const saveMove=()=>{if(!selected)return;persistOverrides({...overrides,[selected.key]:{...overrides[selected.key],term:moveTerm,major:moveMajor,middle:moveMiddle,minor:moveMinor}});setFilterTerm(moveTerm);setAuditIndex(0)};
-  const deleteProblem=()=>{if(!selected)return;const pieceCount=selectedItem?.problem.pieces.length??0;if(!window.confirm(`이 본문제를 삭제할까요?\n학생 훈련 화면에서 즉시 사라지며 연결된 조각 ${pieceCount}개와 다시 풀기 문제도 함께 삭제됩니다.`))return;persistOverrides({...overrides,[selected.key]:{...overrides[selected.key],deleted:true}});setAuditIndex(index=>Math.max(0,index-1))};
+  const deleteProblem=()=>{if(!selected||!window.confirm("이 문제를 학생 훈련에서 삭제할까요?"))return;persistOverrides({...overrides,[selected.key]:{...overrides[selected.key],deleted:true}});setAuditIndex(index=>Math.max(0,index-1))};
   return <section className="problemAudit"><div className="auditHead"><div><span className="eyebrow">교사 전용 빠른 검수</span><h1>학생 훈련 문제 빠르게 확인</h1><p>문제를 앞뒤로 넘겨 보며 잘못된 학년·단원과 문장을 바로 고칩니다.</p></div><label>검수할 학년·학기<select value={filterTerm} onChange={e=>{setFilterTerm(e.target.value);setAuditIndex(0)}}>{Object.keys(curriculum).map(x=><option key={x}>{x}</option>)}</select></label></div>{selectedItem?<><div className="auditNavigator"><button disabled={auditIndex===0} onClick={()=>setAuditIndex(i=>Math.max(0,i-1))}>← 이전 문제</button><b>{auditIndex+1} / {visibleItems.length}</b><button disabled={auditIndex>=visibleItems.length-1} onClick={()=>setAuditIndex(i=>Math.min(visibleItems.length-1,i+1))}>다음 문제 →</button></div><div className="auditProblemPreview"><div><span>{selectedItem.term} › {selectedItem.major} › {selectedItem.middle} › {selectedItem.minor}</span><b>{selectedItem.problem.title}</b></div><p>{formattedMathText(selectedItem.problem.question.한국어)}</p></div><div className="auditEditGrid"><section><h2>문제 문장 수정</h2><textarea value={editQuestion} onChange={e=>setEditQuestion(e.target.value)}/><button className="auditSave" onClick={saveQuestion}>수정 내용 저장</button></section><section><h2>학년·단원 이동</h2><div className="auditSelectors"><label>학년·학기<select value={moveTerm} onChange={e=>changeMoveTerm(e.target.value)}>{Object.keys(curriculum).map(x=><option key={x}>{x}</option>)}</select></label><label>대단원<select value={moveMajor} onChange={e=>{const major=e.target.value,middle=Object.keys(curriculum[moveTerm][major])[0];setMoveMajor(major);setMoveMiddle(middle);setMoveMinor(curriculum[moveTerm][major][middle][0])}}>{Object.keys(curriculum[moveTerm]).map(x=><option key={x}>{x}</option>)}</select></label><label>중단원<select value={moveMiddle} onChange={e=>{setMoveMiddle(e.target.value);setMoveMinor(curriculum[moveTerm][moveMajor][e.target.value][0])}}>{Object.keys(curriculum[moveTerm][moveMajor]??{}).map(x=><option key={x}>{x}</option>)}</select></label><label>소단원<select value={moveMinor} onChange={e=>setMoveMinor(e.target.value)}>{(curriculum[moveTerm][moveMajor]?.[moveMiddle]??[]).map(x=><option key={x}>{x}</option>)}</select></label></div><button className="auditMove" onClick={saveMove}>선택한 단원으로 이동</button></section></div><div className="auditDanger"><span>잘못 등록되어 사용하지 않을 문제라면 삭제할 수 있습니다.</span><button onClick={deleteProblem}>이 문제 삭제</button></div></>:<div className="studioEmpty">이 학기에 검수할 문제가 없습니다.</div>}</section>
 }
 
 function TeacherWorkspace({activeStudent,studentSaved,xp,minor}:{activeStudent:StudentInfo;studentSaved:boolean;xp:number;minor:string}){
   const [workspaceTab,setWorkspaceTab]=useState<"problem"|"students"|"audit">("audit");
-  return <><nav className="teacherWorkspaceTabs" aria-label="교사 작업실 메뉴"><button className={workspaceTab==="audit"?"active":""} onClick={()=>setWorkspaceTab("audit")}>문제 빠른 검수·수정</button><button className={workspaceTab==="problem"?"active":""} onClick={()=>setWorkspaceTab("problem")}>문제 파일 등록·조각 제작</button><button className={workspaceTab==="students"?"active":""} onClick={()=>setWorkspaceTab("students")}>학생·학급 관리</button></nav>{workspaceTab==="audit"?<TeacherProblemAudit/>:workspaceTab==="problem"?<TeacherProblemStudio/>:<TeacherRosterManager activeStudent={activeStudent} studentSaved={studentSaved} xp={xp} minor={minor}/>}</>
+  return <><nav className="teacherWorkspaceTabs" aria-label="교사 작업실 메뉴"><button className={workspaceTab==="audit"?"active":""} onClick={()=>setWorkspaceTab("audit")}>문제 빠른 검수·수정</button><button className={workspaceTab==="problem"?"active":""} onClick={()=>setWorkspaceTab("problem")}>문제 등록·보관함·조각 제작</button><button className={workspaceTab==="students"?"active":""} onClick={()=>setWorkspaceTab("students")}>학생·학급 관리</button></nav>{workspaceTab==="audit"?<TeacherProblemAudit/>:workspaceTab==="problem"?<TeacherProblemStudioPro curriculum={curriculum}/>:<TeacherRosterManager activeStudent={activeStudent} studentSaved={studentSaved} xp={xp} minor={minor}/>}</>
 }
 
 export default function Home(){
@@ -1542,7 +1454,7 @@ export default function Home(){
     return()=>previous.remove();
   },[showPieces,pieceIndex,pieceChoice,p.title]);
   useEffect(()=>{if(mode!=="teacher"||!teacherUnlocked)return;const host=document.createElement("div");host.className="teacherRosterHost";document.querySelector("main")?.insertBefore(host,document.querySelector(".teacherPage"));const root=createRoot(host);root.render(<TeacherWorkspace activeStudent={studentInfo} studentSaved={studentSaved} xp={xp} minor={minor}/>);return()=>{setTimeout(()=>root.unmount(),0);host.remove()}},[mode,teacherUnlocked,studentSaved,studentInfo.grade,studentInfo.classNo,studentInfo.number,studentInfo.name,xp,minor]);
-  return <main><header className="topbar"><a className="brand" href="#top"><span><b>외동중 수학 훈련 프로그램</b><small>문장을 알면, 수학이 보인다</small></span></a><nav className="modeSwitch"><button className={mode==="student"?"active":""} onClick={()=>setMode("student")}>학생 훈련</button><button className={mode==="teacher"?"active":""} onClick={openTeacher}>교사 작업실 🔒</button></nav><div className="headerTools"><label className="language">🌐 <select value={lang} onChange={e=>setLang(e.target.value as Lang)}>{langs.map(x=><option key={x}>{x}</option>)}</select></label><button className="inviteQrButton" onClick={()=>setInviteQrOpen(true)} aria-haspopup="dialog">▦ 초대 QR</button></div></header>
+  return <main><header className="topbar"><a className="brand" href="#top"><span><b>외동중학교 수학 훈련 프로그램</b><small className="brandMotto">수학 공부는 반복 반복으로 구구단이 될 때 까지~</small></span><i className="yrBrandMark" aria-label="YR">YR</i></a><nav className="modeSwitch"><button className={mode==="student"?"active":""} onClick={()=>setMode("student")}>학생 훈련</button><button className={mode==="teacher"?"active":""} onClick={openTeacher}>교사 작업실 🔒</button></nav><div className="headerTools"><label className="language">🌐 <select value={lang} onChange={e=>setLang(e.target.value as Lang)}>{langs.map(x=><option key={x}>{x}</option>)}</select></label><button className="inviteQrButton" onClick={()=>setInviteQrOpen(true)} aria-haspopup="dialog">▦ 초대 QR</button></div></header>
 {inviteQrOpen&&<div className="qrOverlay" role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setInviteQrOpen(false)}}><section className="qrDialog" role="dialog" aria-modal="true" aria-labelledby="invite-qr-title"><button className="qrClose" onClick={()=>setInviteQrOpen(false)} aria-label="학생 초대 QR 닫기">×</button><span className="eyebrow">학생 바로 초대</span><h2 id="invite-qr-title">외동중 수학 훈련 프로그램</h2><p>학생이 휴대전화 카메라로 QR 코드를 찍으면 이 화면으로 바로 들어옵니다.</p><div className="qrImageFrame" style={{width:inviteQrSize,height:inviteQrSize}}><img src={`https://api.qrserver.com/v1/create-qr-code/?size=${inviteQrSize}x${inviteQrSize}&margin=8&data=${encodeURIComponent(inviteUrl)}`} width={inviteQrSize} height={inviteQrSize} alt={`학생 초대 주소 ${inviteUrl} QR 코드`}/></div><div className="qrSizeControls" aria-label="QR 코드 크기 조절"><button onClick={()=>setInviteQrSize(size=>Math.max(160,size-40))} disabled={inviteQrSize<=160}>− 축소</button><b>{inviteQrSize}px</b><button onClick={()=>setInviteQrSize(size=>Math.min(400,size+40))} disabled={inviteQrSize>=400}>＋ 확대</button></div><small>{inviteUrl}</small><button className="qrDone" onClick={()=>setInviteQrOpen(false)}>QR 닫기</button></section></div>}
 {mode==="student"?<div id="top" className={`pageShell ${selectionComplete?"trainingFocus":"selectionOnly"}`}><aside className="curriculum"><div className="eyebrow">훈련 범위 선택</div><h2>내가 도전할 단원</h2><p className="challengeMessage">내가 도전하는 이유는 꿈을 이루기 위해. 아자~!</p><section className="studentIdentity"><div className="studentIdentityHead"><b>학생 정보</b><span>{studentSaved?`✓ ${studentInfo.name} 학생`:"훈련할 학생을 알려주세요"}</span></div><div className="studentFields"><label>학년<select value={studentInfo.grade} onChange={e=>{setStudentInfo({...studentInfo,grade:e.target.value});setStudentSaved(false)}}><option>1</option><option>2</option><option>3</option></select></label><label>반<select value={studentInfo.classNo} onChange={e=>{setStudentInfo({...studentInfo,classNo:e.target.value});setStudentSaved(false)}}><option value="">선택</option>{[1,2,3,4,5].map(n=><option key={n} value={n}>{n}반</option>)}</select></label><label>번호<select value={studentInfo.number} onChange={e=>{setStudentInfo({...studentInfo,number:e.target.value});setStudentSaved(false)}}><option value="">선택</option>{Array.from({length:30},(_,i)=>i+1).map(n=><option key={n} value={n}>{n}번</option>)}</select></label><label className="studentName">이름<input value={studentInfo.name} onChange={e=>{setStudentInfo({...studentInfo,name:e.target.value});setStudentSaved(false)}}/></label></div><button onClick={saveStudent}>{studentSaved?"학생 정보 저장 완료":"학생 정보 저장"}</button>{studentNotice&&<p className={`studentNotice ${studentSaved?"ok":"warn"}`}>{studentNotice}</p>}</section><label>학년·학기<select value={term} onChange={e=>changeTerm(e.target.value)}>{Object.keys(curriculum).map(x=><option key={x}>{x}</option>)}</select></label><label>대단원<select value={major} onChange={e=>changeMajor(e.target.value)}>{majors.map(x=><option key={x}>{x}</option>)}</select></label><label>중단원<select value={middle} onChange={e=>{setMiddle(e.target.value);setMinor(curriculum[term][major][e.target.value][0]);resetProblem(0)}}>{middles.map(x=><option key={x}>{x}</option>)}</select></label><label>소단원<select value={minor} onChange={e=>{setMinor(e.target.value);resetProblem(0)}}>{minors.map(x=><option key={x}>{x}</option>)}</select></label><button className="completeSelection" onClick={completeSelection}>선택 완료 · 훈련 시작 →</button></aside>
 <section className="workspace"><button className="backToSelection" onClick={goToStart}>← 다른 단원 선택</button><div className="gameHud"><div className="levelBadge">LV.{Math.floor(xp/100)+1}</div><div className="xpBar"><span style={{width:`${xp%100}%`}}/><small>{xp} XP</small></div><div className="hearts" aria-label={`남은 하트 ${hearts}개`}>{[0,1,2].map(i=><i key={i} className={i<hearts?"alive":"lost"}>♥</i>)}</div><div className="combo">🔥 {combo} 연속</div><p>{gameNotice}</p></div><div className="progress compact fourSteps"><div className="done"><span>1</span>혼자 풀기</div><div className={showPieces?"done":""}><span>2</span>조각 훈련</div><div className={retryResult==="right"?"done":""}><span>3</span>다시 혼자 풀기</div><div className={retryResult==="right"?"done":""}><span>4</span>다시 풀기</div></div><article className="originalProblem stickyProblem"><div className="problemHead"><span>{mathVars(p.title)}</span><span>{problemIndex+1} / {activeProblems.length}</span></div>{bilingualQuestion(p.question,lang)}<ProblemDiagram problem={p}/></article>
