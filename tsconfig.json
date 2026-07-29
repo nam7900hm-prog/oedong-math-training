@@ -30,5 +30,18 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "db",
+    "drizzle",
+    "worker",
+    "server",
+    "client",
+    "tests",
+    "examples",
+    "build",
+    "dist",
+    ".openai",
+    ".wrangler"
+  ]
 }
