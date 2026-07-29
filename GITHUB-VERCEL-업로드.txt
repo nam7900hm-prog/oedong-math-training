@@ -9,5 +9,5 @@ YR 수학 훈련 프로그램 GitHub·Vercel 배포용
 
 중요: ZIP 파일 자체를 GitHub 저장소 안에 올리는 것이 아니라, 압축을 푼 내용물을 올려야 합니다.
 
-이 수정본은 GitHub에 이전 Cloudflare용 db, worker, drizzle 폴더가 남아 있어도
-Vercel의 Next.js 형식 검사에서 제외하도록 설정되어 있습니다.
+이 수정본은 GitHub에 이전 Cloudflare·Drizzle 파일이 남아 있어도
+app 폴더와 Next.js 필수 파일만 형식 검사하도록 설정되어 있습니다.
