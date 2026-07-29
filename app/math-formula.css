@@ -1,2 +1,12 @@
-.katexMathText{font-family:"Noto Serif KR","Batang",serif;line-height:1.75;word-break:keep-all}.katexMathText .plainMathText{font:inherit}.mathFormula.inlineMath{display:inline-block;margin:0 .08em;white-space:nowrap;vertical-align:-.08em}.mathFormula.blockMath{display:block;max-width:100%;overflow-x:auto;margin:.7em 0;text-align:center}.mathFormula .katex{font-size:1em}.mathFormulaFallback{font-family:"Cambria Math",serif;color:inherit}.pilotKatexQuestion .mathFormula .katex,.pilotKatexChoice .mathFormula .katex{font-size:1em}.pilotKatexQuestion{font-size:clamp(21px,2vw,29px)}.pilotKatexChoice{font-size:inherit}
-@media(max-width:600px){.katexMathText{line-height:1.7}.mathFormula.inlineMath{margin-inline:.05em}}
+.katexMathText{font-family:"Noto Serif KR","Batang",serif;line-height:1.75;word-break:keep-all}.katexMathText .plainMathText{font:inherit}.mathFormula.inlineMath{display:inline-block;margin:0 .08em;white-space:nowrap;vertical-align:-.08em}.mathFormula.blockMath{display:block;max-width:100%;overflow-x:auto;margin:.7em 0;text-align:center}.mathFormula .katex{font-size:1em}.mathFormulaFallback{font-family:"Cambria Math",serif;color:inherit}
+
+/* Two-screen KaTeX pilot: size fractions from the surrounding sentence,
+   then align the complete formula instead of nudging numerator/denominator. */
+.pilotKatexQuestion,.pilotKatexChoice{font-family:"Noto Serif KR","Batang",serif;word-break:keep-all}
+.pilotKatexQuestion{font-size:clamp(22px,2vw,29px);line-height:2.05}
+.pilotKatexChoice{font-size:inherit;line-height:1.9}
+.pilotKatexQuestion .mathFormula.inlineMath,.pilotKatexChoice .mathFormula.inlineMath{margin-inline:.12em;vertical-align:-.31em}
+.pilotKatexQuestion .mathFormula .katex,.pilotKatexChoice .mathFormula .katex{font-size:1.08em;line-height:1}
+.pilotKatexQuestion .katex .mfrac,.pilotKatexChoice .katex .mfrac{font-size:1em}
+
+@media(max-width:600px){.katexMathText{line-height:1.7}.mathFormula.inlineMath{margin-inline:.05em}.pilotKatexQuestion{font-size:clamp(20px,6vw,25px);line-height:2}.pilotKatexChoice{line-height:1.85}.pilotKatexQuestion .mathFormula.inlineMath,.pilotKatexChoice .mathFormula.inlineMath{margin-inline:.08em;vertical-align:-.29em}}

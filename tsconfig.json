@@ -24,23 +24,11 @@
   },
   "include": [
     "next-env.d.ts",
-    "app/**/*.ts",
-    "app/**/*.tsx",
+    "**/*.ts",
+    "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
   ],
-  "exclude": [
-    "node_modules",
-    "db",
-    "drizzle",
-    "worker",
-    "server",
-    "client",
-    "tests",
-    "examples",
-    "build",
-    "dist",
-    ".openai",
-    ".wrangler"
-  ]
+  "exclude": ["node_modules"]
 }

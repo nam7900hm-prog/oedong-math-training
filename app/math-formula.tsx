@@ -26,5 +26,6 @@ export const pilotMathParts=(value:string):Array<string|{latex:string;label?:str
     "4(x-7)": [{latex:"4(x-7)"}],
     "4x-7": [{latex:"4x-7"}],
   };
-  return exact[value]??[value];
+  const parts=exact[value]??[value];
+  return parts.map(part=>typeof part==="string"?part:{...part,latex:part.latex.replace(/\\frac/g,"\\dfrac")});
 };
