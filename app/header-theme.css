@@ -1,13 +1,67 @@
 .topbar {
-  background: linear-gradient(135deg, #173f88, #2865d8);
-  border-bottom-color: #123879;
-  box-shadow: 0 5px 18px #173f8826;
+  min-height: 82px;
+  height: auto;
+  background: #17345f;
+  border-bottom-color: #10284b;
+  box-shadow: 0 5px 18px rgba(13, 38, 78, .18);
 }
-.brand { color: #fff; }
-.brand b { color: #fff; }
-.brand small { color: #dce9ff; }
-.modeSwitch { background: #0f3375; }
-.modeSwitch button { color: #dbe8ff; }
-.modeSwitch .active { background: #fff; color: #174aa8; }
-.language { background: #fff; border-color: #c7d7f7; color: #173f88; }
-.language select { color: #173f88; }
+
+.brand {
+  color: #fff;
+  min-width: 0;
+}
+
+.brandText {
+  --yr-width: 2.35em;
+  display: block;
+  min-width: 0;
+}
+
+.brandTitle {
+  display: flex !important;
+  align-items: baseline;
+  gap: .42em;
+  color: #fff;
+  font-family: "Noto Serif KR", "Nanum Myeongjo", Batang, serif;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.brandInitial {
+  display: inline-block;
+  width: var(--yr-width);
+  color: #fff;
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  letter-spacing: -.07em;
+}
+
+.brandMotto {
+  display: block;
+  margin-top: 4px !important;
+  margin-left: 0;
+  color: #fff !important;
+  font-family: "Noto Serif KR", "Nanum Myeongjo", Batang, serif;
+  font-weight: 700 !important;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.modeSwitch { background: rgba(238, 243, 252, .92); }
+.headerTools .language { background: #fff; }
+
+@media (max-width: 860px) {
+  .topbar .brandMotto { display: block; }
+  .brandText { --yr-width: 2.25em; }
+}
+
+@media (max-width: 560px) {
+  .topbar { min-height: 118px; align-items: flex-start; }
+  .brand { width: 100%; padding-right: 108px; }
+  .brandTitle { font-size: clamp(18px, 5.3vw, 22px) !important; }
+  .brandMotto {
+    margin-top: 3px !important;
+    font-size: clamp(9px, 2.8vw, 11px) !important;
+    white-space: normal;
+  }
+}
